@@ -57,6 +57,8 @@ typedef enum
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+IWDG_HandleTypeDef hiwdg;
+
 SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim2;
@@ -107,6 +109,7 @@ static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_IWDG_Init(void);
 void StartDefaultTask(void *argument);
 void startImuDataTask(void *argument);
 void streamTimerCallback(void *argument);
@@ -158,6 +161,8 @@ void JumpToBootloader(void) {
 	 */
 	__disable_irq();
 
+	 NVIC_SystemReset(); //forget remapping - these seems to work fine.
+
 	/**
 	 * Step: Remap system memory to address 0x0000 0000 in address space
 	 *       For each family registers may be different.
@@ -168,7 +173,7 @@ void JumpToBootloader(void) {
 	 *       For others, check family reference manual
 	 */
 	//Remap by hand... {
-	  NVIC_SystemReset();
+
 
 #if defined(STM32F4)
 	SYSCFG->MEMRMP = 0x01;
@@ -228,16 +233,16 @@ static void VectorBase_Config(void)
   */
 int main(void)
 {
+  /* USER CODE BEGIN 1 */
 	VectorBase_Config();
 
-  /* USER CODE BEGIN 1 */
 	//look at the AUX pin.  If low for a certain number of samples, then enter boot loader mode.
 	// Enable the GPIOA peripheral in 'RCC_AHBENR'.
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
 	GPIOA->PUPDR  |=  (0x1 << (TRIGGER_PIN*2));
 	  long int bootCount = 0;
 	  unsigned char bootTrigger = true;
-	  for(bootCount = 0; bootCount < 100000; bootCount++){
+	  for(bootCount = 0; bootCount < 10000000; bootCount++){
 		  uint32_t idr_val = GPIOA->IDR;
 		  if (idr_val & (1 << TRIGGER_PIN)) {
 			  bootTrigger = false;
@@ -270,6 +275,7 @@ int main(void)
   MX_SPI2_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
+  //MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -342,8 +348,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 8;
@@ -367,6 +374,34 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief IWDG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG_Init(void)
+{
+
+  /* USER CODE BEGIN IWDG_Init 0 */
+
+  /* USER CODE END IWDG_Init 0 */
+
+  /* USER CODE BEGIN IWDG_Init 1 */
+
+  /* USER CODE END IWDG_Init 1 */
+  hiwdg.Instance = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
+  hiwdg.Init.Reload = 4095;
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN IWDG_Init 2 */
+
+  /* USER CODE END IWDG_Init 2 */
+
 }
 
 /**
