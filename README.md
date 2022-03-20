@@ -1,6 +1,6 @@
-#Using the Application
+# Using the Application
 
-##ModBus Interface
+## ModBus Interface
 
 For clarity, lets use these acronyms:
 
@@ -40,7 +40,7 @@ MWR(3, 0x50)
 
 MWR(2, 0x10)
 
-##Streaming
+## Streaming
 
 Streaming is turned on by writing 0x69 to modbus register 10
 
