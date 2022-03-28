@@ -57,8 +57,6 @@ typedef enum
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-IWDG_HandleTypeDef hiwdg;
-
 SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim2;
@@ -101,6 +99,7 @@ modbusHandler_t ModbusH;
 uint16_t ModbusData[128];
 uint8_t uartData[16];
 
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,7 +108,6 @@ static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_IWDG_Init(void);
 void StartDefaultTask(void *argument);
 void startImuDataTask(void *argument);
 void streamTimerCallback(void *argument);
@@ -275,7 +273,6 @@ int main(void)
   MX_SPI2_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
-  //MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -348,9 +345,8 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 8;
@@ -374,34 +370,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief IWDG Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_IWDG_Init(void)
-{
-
-  /* USER CODE BEGIN IWDG_Init 0 */
-
-  /* USER CODE END IWDG_Init 0 */
-
-  /* USER CODE BEGIN IWDG_Init 1 */
-
-  /* USER CODE END IWDG_Init 1 */
-  hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
-  hiwdg.Init.Reload = 4095;
-  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN IWDG_Init 2 */
-
-  /* USER CODE END IWDG_Init 2 */
-
 }
 
 /**
@@ -503,7 +471,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 460800;
+  huart2.Init.BaudRate = 230400;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -574,16 +542,16 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 		bytesToRead -= 2;
 		if(bytesToRead == 0){
 			sixPacketReady = true;	//this is the last pair of bytes to read.  Time to send it out from uart.
-			if(packetsStreamed < 256){
-				packetsStreamed++;
-			}
-			else{
+			if(packetsStreamed % 256 == 0){
 				packetsStreamed = 0;
 				HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);	//every 256 packets we toggle the LED
 			}
+			else{
+				packetsStreamed++;
+			}
 		}
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);	//set CS low.  It will be reset in the callback for TX complete.
-		HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 24 - bytesToRead, spiRxBuffer + 24 - bytesToRead, 2);
+		HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 28 - bytesToRead, spiRxBuffer + 28 - bytesToRead, 2);
 		spiBusy = true;
 	}
 	else{
@@ -609,12 +577,14 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 			uartData[10] = spiRxBuffer[21];
 			uartData[11] = spiRxBuffer[23];
 
-			uartData[12] = 0x55;
-			uartData[13] = 0xAA;
 
+			uartData[12] = spiRxBuffer[25];
+			uartData[13] = spiRxBuffer[27];
+			uartData[14] = 0x55;
+			uartData[15] = 0xAA;
 			// set RS485 transceiver to transmit mode
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-			HAL_UART_Transmit_IT(&huart2, uartData,  14);
+			HAL_UART_Transmit_IT(&huart2, uartData,  16);
 			sixPacketReady = false;
 		}
 
@@ -725,7 +695,10 @@ void startImuDataTask(void *argument)
 				spiTxBuffer[21] = 0x0;
 				spiTxBuffer[22] = 0x80 | 0x2D;	//OUTZ_H_A
 				spiTxBuffer[23] = 0x0;
-
+				spiTxBuffer[24] = 0x80 | 0x20;	//Temperature L
+				spiTxBuffer[25] = 0x0;
+				spiTxBuffer[26] = 0x80 | 0x21;	//Temperature H
+				spiTxBuffer[27] = 0x0;
 				//start streaming
 				//ModbusEnd(&ModbusH);
 				HAL_TIM_Base_Start_IT(&htim2);
@@ -744,6 +717,7 @@ void startImuDataTask(void *argument)
 				//htim2.Instance->CCR2 = ModbusData[11];
 				ModbusData[11] = 0;
 			}
+
 			osSemaphoreRelease(ModbusH.ModBusSphrHandle);
 
 			break;
@@ -836,9 +810,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   else if(htim->Instance == TIM2){	//streaming timer
-	bytesToRead = 24;
+	bytesToRead = 28;
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
-	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 24 - bytesToRead, spiRxBuffer + 24 - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
+	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 28 - bytesToRead, spiRxBuffer + 28 - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
 	spiBusy = true;
   }
   /* USER CODE END Callback 1 */
