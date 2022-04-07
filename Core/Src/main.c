@@ -98,7 +98,7 @@ uint8_t spiRxBuffer[32];
 modbusHandler_t ModbusH;
 uint16_t ModbusData[128];
 uint8_t uartData[16];
-
+uint32_t frameCounter = 0;
 
 /* USER CODE END PV */
 
@@ -234,21 +234,21 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	VectorBase_Config();
 
-	//look at the AUX pin.  If low for a certain number of samples, then enter boot loader mode.
-	// Enable the GPIOA peripheral in 'RCC_AHBENR'.
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-	GPIOA->PUPDR  |=  (0x1 << (TRIGGER_PIN*2));
-	  long int bootCount = 0;
-	  unsigned char bootTrigger = true;
-	  for(bootCount = 0; bootCount < 10000000; bootCount++){
-		  uint32_t idr_val = GPIOA->IDR;
-		  if (idr_val & (1 << TRIGGER_PIN)) {
-			  bootTrigger = false;
-		  }
-	  }
-	  if(bootTrigger){
-		  JumpToBootloader();
-	  }
+//	//look at the AUX pin.  If low for a certain number of samples, then enter boot loader mode.
+//	// Enable the GPIOA peripheral in 'RCC_AHBENR'.
+//	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+//	GPIOA->PUPDR  |=  (0x1 << (TRIGGER_PIN*2));
+//	  long int bootCount = 0;
+//	  long int bootTriggerCount = 0;
+//	  for(bootCount = 0; bootCount < 10000000; bootCount++){
+//		  uint32_t idr_val = GPIOA->IDR;
+//		  if (idr_val & (1 << TRIGGER_PIN)) {
+//			  bootTriggerCount++;
+//		  }
+//	  }
+//	  if(bootTriggerCount < 250000){	//give it some tolerance for noise
+//		  JumpToBootloader();
+//	  }
 
   /* USER CODE END 1 */
 
@@ -559,6 +559,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 		if(sixPacketReady){
 			//we got a streaming packet of data containing 6 axis values over SPI.  CRC
 			//Send it out via UART.
+			frameCounter++;
 			uartData[0] = spiRxBuffer[1];
 			uartData[1] = spiRxBuffer[3];
 
@@ -580,11 +581,18 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 
 			uartData[12] = spiRxBuffer[25];
 			uartData[13] = spiRxBuffer[27];
-			uartData[14] = 0x55;
-			uartData[15] = 0xAA;
+			uartData[14] = (frameCounter & 0xFF000000) >> 24;
+			uartData[15] = (frameCounter & 0x00FF0000) >> 16;
+			uartData[16] = (frameCounter & 0x0000FF00) >> 8;
+			uartData[17] = (frameCounter & 0x000000FF);
+			uint16_t crc = calcCRC(uartData, 18);
+			uartData[18] = (crc & 0x00FF);	//High Byte
+			uartData[19] = ((crc & 0xFF00) >> 8); //Low Byte
+			uartData[20] = 0x55;
+			uartData[21] = 0xAA;
 			// set RS485 transceiver to transmit mode
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-			HAL_UART_Transmit_IT(&huart2, uartData,  16);
+			HAL_UART_Transmit_IT(&huart2, uartData,  22);
 			sixPacketReady = false;
 		}
 
@@ -700,6 +708,7 @@ void startImuDataTask(void *argument)
 				spiTxBuffer[26] = 0x80 | 0x21;	//Temperature H
 				spiTxBuffer[27] = 0x0;
 				//start streaming
+				frameCounter = 0;
 				//ModbusEnd(&ModbusH);
 				HAL_TIM_Base_Start_IT(&htim2);
 			}
