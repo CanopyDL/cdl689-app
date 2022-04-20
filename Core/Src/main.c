@@ -250,7 +250,7 @@ int main(void)
 //		  JumpToBootloader();
 //	  }
 
-  /* USER CODE END 1 */
+	/* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -405,6 +405,7 @@ static void MX_SPI2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN SPI2_Init 2 */
+
 
   /* USER CODE END SPI2_Init 2 */
 
@@ -619,7 +620,8 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10	, GPIO_PIN_SET);	//CS back high
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);	//AUX  high
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);	//SPI Clk high
 	osTimerStart(utilTimerHandle, pdMS_TO_TICKS(1000));
   /* Infinite loop */
   for(;;)
@@ -643,6 +645,7 @@ void startImuDataTask(void *argument)
 	IMU_STATES state = IMU_STATE_INIT;
 	IMU_STATES nextState = IMU_STATE_IDLE;
 
+	HAL_SPI_Transmit(&hspi2, spiTxBuffer, 1, 1);
   /* Infinite loop */
 	for(;;){
 		switch(state){
