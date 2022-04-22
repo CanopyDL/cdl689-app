@@ -250,7 +250,7 @@ int main(void)
 //		  JumpToBootloader();
 //	  }
 
-	/* USER CODE END 1 */
+  /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -472,7 +472,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 230400;
+  huart2.Init.BaudRate = 9600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -645,7 +645,9 @@ void startImuDataTask(void *argument)
 	IMU_STATES state = IMU_STATE_INIT;
 	IMU_STATES nextState = IMU_STATE_IDLE;
 
+	//send out a dummy byte over SPI to get the clock high.  Otherwise, the first real transaction may fail.
 	HAL_SPI_Transmit(&hspi2, spiTxBuffer, 1, 1);
+
   /* Infinite loop */
 	for(;;){
 		switch(state){
@@ -728,6 +730,25 @@ void startImuDataTask(void *argument)
 				htim2.Instance->CNT = 0;
 				//htim2.Instance->CCR2 = ModbusData[11];
 				ModbusData[11] = 0;
+			}
+			else if(ModbusData[12] > 0){	//set the baud rate which always starts up at 9600
+				HAL_UART_Abort_IT(&huart2);
+				HAL_UART_DeInit(&huart2);
+				huart2.Init.BaudRate = (ModbusData[12] * 100);
+				huart2.Instance = USART2;
+				huart2.Init.WordLength = UART_WORDLENGTH_8B;
+				huart2.Init.StopBits = UART_STOPBITS_1;
+				huart2.Init.Parity = UART_PARITY_NONE;
+				huart2.Init.Mode = UART_MODE_TX_RX;
+				huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+				huart2.Init.OverSampling = UART_OVERSAMPLING_8;
+
+				if (HAL_UART_Init(&huart2) != HAL_OK){
+					Error_Handler();
+				}
+				//need to call ModbusStart again to receive over UART
+				ModbusStart(&ModbusH);
+				ModbusData[12] = 0;
 			}
 
 			osSemaphoreRelease(ModbusH.ModBusSphrHandle);
@@ -838,7 +859,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
   /* USER CODE END Error_Handler_Debug */
 }
 
