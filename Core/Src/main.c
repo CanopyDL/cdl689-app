@@ -62,6 +62,7 @@ SPI_HandleTypeDef hspi2;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -97,14 +98,16 @@ uint8_t spiTxBuffer[32];
 uint8_t spiRxBuffer[32];
 modbusHandler_t ModbusH;
 uint16_t ModbusData[128];
-uint8_t uartData[16];
-uint32_t frameCounter = 0;
+uint8_t uartData[32];
+uint8_t newUartData[32];
+uint8_t frameCounter = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
@@ -270,6 +273,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
@@ -478,7 +482,7 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.Parity = UART_PARITY_NONE;
   huart2.Init.Mode = UART_MODE_TX_RX;
   huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_8;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart2) != HAL_OK)
   {
     Error_Handler();
@@ -486,6 +490,22 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
 
 }
 
@@ -545,7 +565,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 			sixPacketReady = true;	//this is the last pair of bytes to read.  Time to send it out from uart.
 			if(packetsStreamed % 256 == 0){
 				packetsStreamed = 0;
-				HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);	//every 256 packets we toggle the LED
+				//HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);	//every 256 packets we toggle the LED
 			}
 			else{
 				packetsStreamed++;
@@ -561,39 +581,58 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 			//we got a streaming packet of data containing 6 axis values over SPI.  CRC
 			//Send it out via UART.
 			frameCounter++;
-			uartData[0] = spiRxBuffer[1];
-			uartData[1] = spiRxBuffer[3];
+//			uartData[0] = spiRxBuffer[1];
+//			uartData[1] = spiRxBuffer[3];
+//
+//			uartData[2] = spiRxBuffer[5];
+//			uartData[3] = spiRxBuffer[7];
+//
+//			uartData[4] = spiRxBuffer[9];
+//			uartData[5] = spiRxBuffer[11];
+//
+//			uartData[6] = spiRxBuffer[13];
+//			uartData[7] = spiRxBuffer[15];
+//
+//			uartData[8] = spiRxBuffer[17];
+//			uartData[9] = spiRxBuffer[19];
+//
+//			uartData[10] = spiRxBuffer[21];
+//			uartData[11] = spiRxBuffer[23];
+//
+//
+//			uartData[12] = spiRxBuffer[25];
+//			uartData[13] = spiRxBuffer[27];
+//			uartData[14] = (frameCounter & 0xFF000000) >> 24;
+//			uartData[15] = (frameCounter & 0x00FF0000) >> 16;
+//			uartData[16] = (frameCounter & 0x0000FF00) >> 8;
+//			uartData[17] = (frameCounter & 0x000000FF);
+//			uint16_t crc = calcCRC(uartData, 18);
+//			uartData[18] = (crc & 0x00FF);	//High Byte
+//			uartData[19] = ((crc & 0xFF00) >> 8); //Low Byte
+//			uartData[20] = 0x55;
+//			uartData[21] = 0xAA;
+//			// set RS485 transceiver to transmit mode
+//			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+//			HAL_UART_Transmit_IT(&huart2, uartData,  22);
 
-			uartData[2] = spiRxBuffer[5];
-			uartData[3] = spiRxBuffer[7];
+			newUartData[0] = spiRxBuffer[13];
+			newUartData[1] = spiRxBuffer[15];
 
-			uartData[4] = spiRxBuffer[9];
-			uartData[5] = spiRxBuffer[11];
+			newUartData[2] = spiRxBuffer[17];
+			newUartData[3] = spiRxBuffer[19];
 
-			uartData[6] = spiRxBuffer[13];
-			uartData[7] = spiRxBuffer[15];
+			newUartData[4] = spiRxBuffer[21];
+			newUartData[5] = spiRxBuffer[23];
 
-			uartData[8] = spiRxBuffer[17];
-			uartData[9] = spiRxBuffer[19];
+			newUartData[6] = spiRxBuffer[25];
 
-			uartData[10] = spiRxBuffer[21];
-			uartData[11] = spiRxBuffer[23];
+			newUartData[7] = frameCounter;
 
-
-			uartData[12] = spiRxBuffer[25];
-			uartData[13] = spiRxBuffer[27];
-			uartData[14] = (frameCounter & 0xFF000000) >> 24;
-			uartData[15] = (frameCounter & 0x00FF0000) >> 16;
-			uartData[16] = (frameCounter & 0x0000FF00) >> 8;
-			uartData[17] = (frameCounter & 0x000000FF);
-			uint16_t crc = calcCRC(uartData, 18);
-			uartData[18] = (crc & 0x00FF);	//High Byte
-			uartData[19] = ((crc & 0xFF00) >> 8); //Low Byte
-			uartData[20] = 0x55;
-			uartData[21] = 0xAA;
-			// set RS485 transceiver to transmit mode
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-			HAL_UART_Transmit_IT(&huart2, uartData,  22);
+			uint16_t crc = calcCRC(uartData, 8);
+			newUartData[8] = (crc & 0x00FF);	//High Byte
+			newUartData[9] = ((crc & 0xFF00) >> 8); //Low Byte
+			newUartData[10] = 0x55;
+			newUartData[11] = 0xAA;
 			sixPacketReady = false;
 		}
 
@@ -732,16 +771,18 @@ void startImuDataTask(void *argument)
 				ModbusData[11] = 0;
 			}
 			else if(ModbusData[12] > 0){	//set the baud rate which always starts up at 9600
+
 				HAL_UART_Abort_IT(&huart2);
 				HAL_UART_DeInit(&huart2);
 				huart2.Init.BaudRate = (ModbusData[12] * 100);
+
 				huart2.Instance = USART2;
 				huart2.Init.WordLength = UART_WORDLENGTH_8B;
 				huart2.Init.StopBits = UART_STOPBITS_1;
 				huart2.Init.Parity = UART_PARITY_NONE;
 				huart2.Init.Mode = UART_MODE_TX_RX;
 				huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-				huart2.Init.OverSampling = UART_OVERSAMPLING_8;
+				huart2.Init.OverSampling = UART_OVERSAMPLING_16;
 
 				if (HAL_UART_Init(&huart2) != HAL_OK){
 					Error_Handler();
@@ -847,6 +888,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
 	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 28 - bytesToRead, spiRxBuffer + 28 - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
 	spiBusy = true;
+	//send out the last frame at the same time that we are gathering the newest frame
+	memcpy(uartData, newUartData, 12);
+	// set RS485 transceiver to transmit mode
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+	//HAL_UART_Transmit_IT(&huart2, uartData,  12);
+	HAL_UART_Transmit_DMA(&huart2, uartData,  12);
   }
   /* USER CODE END Callback 1 */
 }
@@ -859,7 +906,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
   /* USER CODE END Error_Handler_Debug */
 }
 

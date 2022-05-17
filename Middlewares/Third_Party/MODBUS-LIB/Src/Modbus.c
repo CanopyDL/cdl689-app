@@ -267,7 +267,7 @@ void StartTaskModbusSlave(void *argument)
 	  modH->u8BufferSize = uxQueueMessagesWaiting(modH->QueueModbusHandle);
 	  if (modH->EN_Port != NULL )
 	  {
-	     	HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET); // is this required?
+	     	//HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET); // is this required?
 	  }
 
 	  int8_t i8state = getRxBuffer(modH);
@@ -655,7 +655,7 @@ int8_t getRxBuffer(modbusHandler_t *modH)
     if (modH->EN_Port)
     {
     	//digitalWrite( u8txenpin, LOW );
-    	HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET);
+    	//HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET);
     }
 
 
@@ -876,7 +876,7 @@ void sendTxBuffer(modbusHandler_t *modH)
     // transfer buffer to serial line
     //port->write( au8Buffer, u8BufferSize );
     //HAL_UART_Transmit(modH->port, modH->au8Buffer , modH->u8BufferSize, 100);
-    HAL_UART_Transmit_IT(modH->port, modH->au8Buffer,  modH->u8BufferSize);
+    HAL_UART_Transmit_DMA(modH->port, modH->au8Buffer,  modH->u8BufferSize);
 
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY); //wait notification from TXE interrupt
 
@@ -890,7 +890,7 @@ void sendTxBuffer(modbusHandler_t *modH)
     	 {
     		taskYIELD();
     	 }
-    	 HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET);
+    	 //HAL_GPIO_WritePin(modH->EN_Port, modH->EN_Pin, GPIO_PIN_RESET);
      }
 
      xQueueGenericReset(modH->QueueModbusHandle, pdFALSE);
