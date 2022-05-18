@@ -210,7 +210,7 @@ void setTxendPinOverTime( uint32_t u32overTime );
 void ModbusEnd(); //!<finish any communication and release serial communication port
 void StartTaskModbusSlave(void *argument); //slave
 void StartTaskModbusMaster(void *argument); //master
-uint16_t calcCRC(uint8_t *Buffer, uint8_t u8length);
+uint16_t calcCRC(uint8_t *Buffer, uint16_t u16length);
 extern uint8_t numberHandlers;
 
 

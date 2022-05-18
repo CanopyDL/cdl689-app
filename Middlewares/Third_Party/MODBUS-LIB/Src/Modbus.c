@@ -803,11 +803,11 @@ uint16_t word(uint8_t H, uint8_t L)
  * @ingroup Buffer
  * @ingroup u8length
  */
-uint16_t calcCRC(uint8_t *Buffer, uint8_t u8length)
+uint16_t calcCRC(uint8_t *Buffer, uint16_t u16length)
 {
     unsigned int temp, temp2, flag;
     temp = 0xFFFF;
-    for (unsigned char i = 0; i < u8length; i++)
+    for (unsigned char i = 0; i < u16length; i++)
     {
         temp = temp ^ Buffer[i];
         for (unsigned char j = 1; j <= 8; j++)

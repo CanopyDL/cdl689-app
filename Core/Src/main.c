@@ -36,7 +36,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+#define BYTES_PER_SAMPLE	24
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -90,17 +91,18 @@ const osTimerAttr_t utilTimer_attributes = {
 };
 /* USER CODE BEGIN PV */
 bool spiBusy = false;
-volatile bool sixPacketReady = false;
+volatile bool sampleReady = false;
 volatile int bytesToRead;
-volatile int packetsStreamed = 0;
 uint16_t streamTimerPeriod_uS = 1000;
 uint8_t spiTxBuffer[32];
 uint8_t spiRxBuffer[32];
 modbusHandler_t ModbusH;
 uint16_t ModbusData[128];
-uint8_t uartData[32];
-uint8_t newUartData[32];
+uint8_t uartData[1024];
+uint8_t newUartData[1024];
 uint8_t frameCounter = 0;
+uint16_t samplesPerFrame = 1;
+uint16_t currentSample = 0;
 
 /* USER CODE END PV */
 
@@ -562,78 +564,73 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 	if(bytesToRead > 0){
 		bytesToRead -= 2;
 		if(bytesToRead == 0){
-			sixPacketReady = true;	//this is the last pair of bytes to read.  Time to send it out from uart.
-			if(packetsStreamed % 256 == 0){
-				packetsStreamed = 0;
-				//HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);	//every 256 packets we toggle the LED
-			}
-			else{
-				packetsStreamed++;
-			}
+			sampleReady = true;	//this is the last pair of bytes to read.  Time to store it for the uart.
 		}
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);	//set CS low.  It will be reset in the callback for TX complete.
-		HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 28 - bytesToRead, spiRxBuffer + 28 - bytesToRead, 2);
+		HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);
 		spiBusy = true;
 	}
 	else{
 		//we've read all the bytes, now send them out from UART if in streaming mode
-		if(sixPacketReady){
+		if(sampleReady){
 			//we got a streaming packet of data containing 6 axis values over SPI.  CRC
 			//Send it out via UART.
-			frameCounter++;
-//			uartData[0] = spiRxBuffer[1];
-//			uartData[1] = spiRxBuffer[3];
-//
-//			uartData[2] = spiRxBuffer[5];
-//			uartData[3] = spiRxBuffer[7];
-//
-//			uartData[4] = spiRxBuffer[9];
-//			uartData[5] = spiRxBuffer[11];
-//
-//			uartData[6] = spiRxBuffer[13];
-//			uartData[7] = spiRxBuffer[15];
-//
-//			uartData[8] = spiRxBuffer[17];
-//			uartData[9] = spiRxBuffer[19];
-//
-//			uartData[10] = spiRxBuffer[21];
-//			uartData[11] = spiRxBuffer[23];
-//
-//
-//			uartData[12] = spiRxBuffer[25];
-//			uartData[13] = spiRxBuffer[27];
-//			uartData[14] = (frameCounter & 0xFF000000) >> 24;
-//			uartData[15] = (frameCounter & 0x00FF0000) >> 16;
-//			uartData[16] = (frameCounter & 0x0000FF00) >> 8;
-//			uartData[17] = (frameCounter & 0x000000FF);
-//			uint16_t crc = calcCRC(uartData, 18);
-//			uartData[18] = (crc & 0x00FF);	//High Byte
-//			uartData[19] = ((crc & 0xFF00) >> 8); //Low Byte
-//			uartData[20] = 0x55;
-//			uartData[21] = 0xAA;
-//			// set RS485 transceiver to transmit mode
-//			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-//			HAL_UART_Transmit_IT(&huart2, uartData,  22);
+			unsigned int tempOffset = (currentSample * (BYTES_PER_SAMPLE / 2));
+			newUartData[tempOffset++] = spiRxBuffer[1];
+			newUartData[tempOffset++] = spiRxBuffer[3];
 
-			newUartData[0] = spiRxBuffer[13];
-			newUartData[1] = spiRxBuffer[15];
+			newUartData[tempOffset++] = spiRxBuffer[5];
+			newUartData[tempOffset++] = spiRxBuffer[7];
 
-			newUartData[2] = spiRxBuffer[17];
-			newUartData[3] = spiRxBuffer[19];
+			newUartData[tempOffset++] = spiRxBuffer[9];
+			newUartData[tempOffset++] = spiRxBuffer[11];
 
-			newUartData[4] = spiRxBuffer[21];
-			newUartData[5] = spiRxBuffer[23];
+			newUartData[tempOffset++] = spiRxBuffer[13];
+			newUartData[tempOffset++] = spiRxBuffer[15];
 
-			newUartData[6] = spiRxBuffer[25];
+			newUartData[tempOffset++] = spiRxBuffer[17];
+			newUartData[tempOffset++] = spiRxBuffer[19];
 
-			newUartData[7] = frameCounter;
+			newUartData[tempOffset++] = spiRxBuffer[21];
+			newUartData[tempOffset++] = spiRxBuffer[23];
 
-			uint16_t crc = calcCRC(uartData, 8);
-			newUartData[8] = (crc & 0x00FF);	//High Byte
-			newUartData[9] = ((crc & 0xFF00) >> 8); //Low Byte
-			newUartData[10] = 0x55;
-			newUartData[11] = 0xAA;
-			sixPacketReady = false;
+			sampleReady = false;
+
+			currentSample++;
+			if(currentSample >= samplesPerFrame){
+				//the last sample will also have temperature data
+				newUartData[tempOffset++] = spiRxBuffer[25];
+				newUartData[tempOffset++] = spiRxBuffer[27];
+
+				newUartData[tempOffset++] = (frameCounter & 0xFF000000) >> 24;
+				newUartData[tempOffset++] = (frameCounter & 0x00FF0000) >> 16;
+				newUartData[tempOffset++] = (frameCounter & 0x0000FF00) >> 8;
+				newUartData[tempOffset++] = (frameCounter & 0x000000FF);
+				uint16_t crc = calcCRC(newUartData, tempOffset);
+				newUartData[tempOffset++] = (crc & 0x00FF);	//High Byte
+				newUartData[tempOffset++] = ((crc & 0xFF00) >> 8); //Low Byte
+				newUartData[tempOffset++] = 0x55;
+				newUartData[tempOffset++] = 0xAA;
+				//send out the frame via the uart
+
+				memcpy(uartData, newUartData, tempOffset);
+				// set RS485 transceiver to transmit mode
+				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+				HAL_UART_Transmit_DMA(&huart2, uartData,  tempOffset);
+
+				frameCounter++;
+			}
+			else{
+				//go grab some more data
+				bytesToRead = BYTES_PER_SAMPLE;
+				//for the very last sample in the frame, we need to also grab temp data over SPI
+				if(currentSample == samplesPerFrame - 1){
+					bytesToRead+=2;
+				}
+				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
+				HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
+				spiBusy = true;
+			}
 		}
 
 	}
@@ -706,6 +703,17 @@ void startImuDataTask(void *argument)
 			ModbusInit(&ModbusH);
 			//Start capturing traffic on serial Port
 			ModbusStart(&ModbusH);
+
+			//every STM32 has a 96bit unique ID stored in flash.  Make it accessible over Modbus.
+			ModbusData[122] = ((STM32_UUID[0] & 0xFFFF0000) >> 16);
+			ModbusData[123] = ((STM32_UUID[0] & 0x0000FFFF) >> 0);
+
+			ModbusData[124] = ((STM32_UUID[1] & 0xFFFF0000) >> 16);
+			ModbusData[125] = ((STM32_UUID[1] & 0x0000FFFF) >> 0);
+
+			ModbusData[126] = ((STM32_UUID[2] & 0xFFFF0000) >> 16);
+			ModbusData[127] = ((STM32_UUID[2] & 0x0000FFFF) >> 0);
+
 			state = IMU_STATE_IDLE;
 			break;
 
@@ -790,6 +798,11 @@ void startImuDataTask(void *argument)
 				//need to call ModbusStart again to receive over UART
 				ModbusStart(&ModbusH);
 				ModbusData[12] = 0;
+			}
+			else if(ModbusData[13] > 0){	//set the number of samples per frame while streaming
+				samplesPerFrame = ModbusData[13];
+
+				ModbusData[13] = 0;
 			}
 
 			osSemaphoreRelease(ModbusH.ModBusSphrHandle);
@@ -884,16 +897,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   else if(htim->Instance == TIM2){	//streaming timer
-	bytesToRead = 28;
+	currentSample = 0;
+	bytesToRead = BYTES_PER_SAMPLE;
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
-	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + 28 - bytesToRead, spiRxBuffer + 28 - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
+	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
 	spiBusy = true;
-	//send out the last frame at the same time that we are gathering the newest frame
-	memcpy(uartData, newUartData, 12);
-	// set RS485 transceiver to transmit mode
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-	//HAL_UART_Transmit_IT(&huart2, uartData,  12);
-	HAL_UART_Transmit_DMA(&huart2, uartData,  12);
+
   }
   /* USER CODE END Callback 1 */
 }
