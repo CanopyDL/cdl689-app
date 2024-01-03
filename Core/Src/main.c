@@ -761,13 +761,16 @@ void startImuDataTask(void *argument)
 				ModbusData[11] = 0;
 			}
 			else if(ModbusData[12] > 0){	//set the baud rate which always starts up at 9600
-				//HAL_UART_Abort_IT(&huart2);
+
+				//as of Jan 2023, the HAL functions for this cause a hard fault in the RTOS
+				//so instead, we now just change BRR on the fly using the macros
 				huart2.Instance->CR1 &= ~(USART_CR1_UE);
-				huart2.Instance->BRR = UART_BRR_SAMPLING16(HAL_RCC_GetPCLK2Freq(), (uint32_t)(ModbusData[12] * 100));
+				huart2.Instance->BRR = UART_BRR_SAMPLING16(HAL_RCC_GetPCLK1Freq(), (uint32_t)(ModbusData[12] * 100));
 				huart2.Instance->CR1 |= USART_CR1_UE;
+
 				//make sure we are in RX mode
 				//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
-
+//				HAL_UART_Abort_IT(&huart2);
 //				HAL_UART_DeInit(&huart2);
 //				huart2.Init.BaudRate = (ModbusData[12] * 100);
 //
@@ -783,7 +786,7 @@ void startImuDataTask(void *argument)
 //					Error_Handler();
 //				}
 //				//need to call ModbusStart again to receive over UART
-				ModbusStart(&ModbusH);
+				//ModbusStart(&ModbusH);
 				ModbusData[12] = 0;
 			}
 			else if(ModbusData[13] > 0){	//set the number of samples per frame while streaming
