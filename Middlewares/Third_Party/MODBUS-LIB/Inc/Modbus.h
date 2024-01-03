@@ -187,8 +187,8 @@ typedef union {
 
 } bytesFields ;
 
-
-modbusHandler_t *mHandlers[MAX_M_HANDLERS];
+extern modbusHandler_t *mHandlers[MAX_M_HANDLERS];
+extern uint8_t numberHandlers;
 
 // Function prototypes
 void ModbusInit(modbusHandler_t * modH);
@@ -211,7 +211,7 @@ void ModbusEnd(); //!<finish any communication and release serial communication 
 void StartTaskModbusSlave(void *argument); //slave
 void StartTaskModbusMaster(void *argument); //master
 uint16_t calcCRC(uint8_t *Buffer, uint16_t u16length);
-extern uint8_t numberHandlers;
+
 
 
 #endif /* THIRD_PARTY_MODBUS_INC_MODBUS_H_ */

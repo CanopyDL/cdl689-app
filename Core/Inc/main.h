@@ -58,8 +58,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LDAC_Pin GPIO_PIN_6
+#define LDAC_GPIO_Port GPIOA
 #define BOOT_TRIG_Pin GPIO_PIN_10
 #define BOOT_TRIG_GPIO_Port GPIOA
+#define SDA_DAC_Pin GPIO_PIN_7
+#define SDA_DAC_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

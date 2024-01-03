@@ -62,7 +62,7 @@ const osSemaphoreAttr_t ModBusSphr_attributes = {
 
 
 uint8_t numberHandlers = 0;
-
+modbusHandler_t *mHandlers[MAX_M_HANDLERS];
 
 static void sendTxBuffer(modbusHandler_t *modH);
 static int8_t getRxBuffer(modbusHandler_t *modH);
@@ -807,7 +807,7 @@ uint16_t calcCRC(uint8_t *Buffer, uint16_t u16length)
 {
     unsigned int temp, temp2, flag;
     temp = 0xFFFF;
-    for (unsigned char i = 0; i < u16length; i++)
+    for (uint16_t i = 0; i < u16length; i++)
     {
         temp = temp ^ Buffer[i];
         for (unsigned char j = 1; j <= 8; j++)

@@ -98,12 +98,14 @@ uint8_t spiTxBuffer[32];
 uint8_t spiRxBuffer[32];
 modbusHandler_t ModbusH;
 uint16_t ModbusData[128];
-uint8_t uartData[1024];
-uint8_t newUartData[1024];
+uint8_t uartData[32768];
+uint8_t newUartData[32768];
 uint8_t frameCounter = 0;
 uint16_t samplesPerFrame = 1;
 uint16_t currentSample = 0;
-
+bool streaming = false;
+bool uartDataReady = false;
+uint16_t uartDataLength = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -526,23 +528,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1|GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1|LDAC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, SDA_DAC_Pin|GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA1 PA6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_6;
+  /*Configure GPIO pins : PA1 LDAC_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|LDAC_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB12 PB8 PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_8|GPIO_PIN_9;
+  /*Configure GPIO pins : PB12 SDA_DAC_Pin PB8 PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|SDA_DAC_Pin|GPIO_PIN_8|GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -561,18 +563,18 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 	//Reset CS
 	spiBusy = false;
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);	//CS back high
-	if(bytesToRead > 0){
-		bytesToRead -= 2;
-		if(bytesToRead == 0){
-			sampleReady = true;	//this is the last pair of bytes to read.  Time to store it for the uart.
+
+	HAL_GPIO_TogglePin(LDAC_GPIO_Port, LDAC_Pin);	//for debug
+
+	if(streaming){
+		if(bytesToRead > 0){
+			bytesToRead -= 2;
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);	//set CS low.  It will be reset in the callback for TX complete.
+			HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);
+			spiBusy = true;
 		}
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);	//set CS low.  It will be reset in the callback for TX complete.
-		HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);
-		spiBusy = true;
-	}
-	else{
-		//we've read all the bytes, now send them out from UART if in streaming mode
-		if(sampleReady){
+		else{
+			//we've read all the bytes, now send them out from UART if in streaming mode
 			//we got a streaming packet of data containing 6 axis values over SPI.  CRC
 			//Send it out via UART.
 			unsigned int tempOffset = (currentSample * (BYTES_PER_SAMPLE / 2));
@@ -594,45 +596,23 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
 			newUartData[tempOffset++] = spiRxBuffer[21];
 			newUartData[tempOffset++] = spiRxBuffer[23];
 
-			sampleReady = false;
-
 			currentSample++;
 			if(currentSample >= samplesPerFrame){
+				HAL_GPIO_TogglePin(SDA_DAC_GPIO_Port, SDA_DAC_Pin);	//for debug
 				//the last sample will also have temperature data
 				newUartData[tempOffset++] = spiRxBuffer[25];
 				newUartData[tempOffset++] = spiRxBuffer[27];
 
-				newUartData[tempOffset++] = (frameCounter & 0xFF000000) >> 24;
-				newUartData[tempOffset++] = (frameCounter & 0x00FF0000) >> 16;
-				newUartData[tempOffset++] = (frameCounter & 0x0000FF00) >> 8;
-				newUartData[tempOffset++] = (frameCounter & 0x000000FF);
-				uint16_t crc = calcCRC(newUartData, tempOffset);
-				newUartData[tempOffset++] = (crc & 0x00FF);	//High Byte
-				newUartData[tempOffset++] = ((crc & 0xFF00) >> 8); //Low Byte
-				newUartData[tempOffset++] = 0x55;
-				newUartData[tempOffset++] = 0xAA;
+				newUartData[tempOffset++] = frameCounter;
 				//send out the frame via the uart
-
-				memcpy(uartData, newUartData, tempOffset);
-				// set RS485 transceiver to transmit mode
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-				HAL_UART_Transmit_DMA(&huart2, uartData,  tempOffset);
-
+				uartDataReady = true;
+				uartDataLength = tempOffset;
 				frameCounter++;
+				currentSample = 0;
+				HAL_GPIO_TogglePin(SDA_DAC_GPIO_Port, SDA_DAC_Pin);	//for debug
 			}
-			else{
-				//go grab some more data
-				bytesToRead = BYTES_PER_SAMPLE;
-				//for the very last sample in the frame, we need to also grab temp data over SPI
-				if(currentSample == samplesPerFrame - 1){
-					bytesToRead+=2;
-				}
-				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
-				HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
-				spiBusy = true;
-			}
-		}
 
+		}
 	}
 }
 
@@ -761,6 +741,7 @@ void startImuDataTask(void *argument)
 				spiTxBuffer[27] = 0x0;
 				//start streaming
 				frameCounter = 0;
+				streaming = true;
 				//ModbusEnd(&ModbusH);
 				HAL_TIM_Base_Start_IT(&htim2);
 			}
@@ -768,6 +749,7 @@ void startImuDataTask(void *argument)
 				ModbusData[10] = 0;
 				//stop streaming
 				//HAL_TIM_PWM_Stop_IT(&htim2, TIM_CHANNEL_1);
+				streaming = false;
 				HAL_TIM_Base_Stop_IT(&htim2);
 				//osTimerStop(streamTimerHandle);
 			}
@@ -779,23 +761,28 @@ void startImuDataTask(void *argument)
 				ModbusData[11] = 0;
 			}
 			else if(ModbusData[12] > 0){	//set the baud rate which always starts up at 9600
+				//HAL_UART_Abort_IT(&huart2);
+				huart2.Instance->CR1 &= ~(USART_CR1_UE);
+				huart2.Instance->BRR = UART_BRR_SAMPLING16(HAL_RCC_GetPCLK2Freq(), (uint32_t)(ModbusData[12] * 100));
+				huart2.Instance->CR1 |= USART_CR1_UE;
+				//make sure we are in RX mode
+				//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 
-				HAL_UART_Abort_IT(&huart2);
-				HAL_UART_DeInit(&huart2);
-				huart2.Init.BaudRate = (ModbusData[12] * 100);
-
-				huart2.Instance = USART2;
-				huart2.Init.WordLength = UART_WORDLENGTH_8B;
-				huart2.Init.StopBits = UART_STOPBITS_1;
-				huart2.Init.Parity = UART_PARITY_NONE;
-				huart2.Init.Mode = UART_MODE_TX_RX;
-				huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-				huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-
-				if (HAL_UART_Init(&huart2) != HAL_OK){
-					Error_Handler();
-				}
-				//need to call ModbusStart again to receive over UART
+//				HAL_UART_DeInit(&huart2);
+//				huart2.Init.BaudRate = (ModbusData[12] * 100);
+//
+//				huart2.Instance = USART2;
+//				huart2.Init.WordLength = UART_WORDLENGTH_8B;
+//				huart2.Init.StopBits = UART_STOPBITS_1;
+//				huart2.Init.Parity = UART_PARITY_NONE;
+//				huart2.Init.Mode = UART_MODE_TX_RX;
+//				huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+//				huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+//
+//				if (HAL_UART_Init(&huart2) != HAL_OK){
+//					Error_Handler();
+//				}
+//				//need to call ModbusStart again to receive over UART
 				ModbusStart(&ModbusH);
 				ModbusData[12] = 0;
 			}
@@ -806,7 +793,19 @@ void startImuDataTask(void *argument)
 			}
 
 			osSemaphoreRelease(ModbusH.ModBusSphrHandle);
+			if(uartDataReady){
+				uint16_t crc = calcCRC(newUartData, uartDataLength);
 
+				newUartData[uartDataLength++] = (crc & 0x00FF);	//High Byte
+				newUartData[uartDataLength++] = ((crc & 0xFF00) >> 8); //Low Byte
+				newUartData[uartDataLength++] = 0x55;
+				newUartData[uartDataLength++] = 0xAA;
+				memcpy(uartData, newUartData, uartDataLength);
+				// set RS485 transceiver to transmit mode
+				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+				HAL_UART_Transmit_DMA(&huart2, uartData,  uartDataLength);
+				uartDataReady = false;
+			}
 			break;
 
 		case IMU_STATE_WAITING:
@@ -897,12 +896,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   else if(htim->Instance == TIM2){	//streaming timer
-	currentSample = 0;
+	  HAL_GPIO_TogglePin(SDA_DAC_GPIO_Port, SDA_DAC_Pin);	//for debug
+	//go grab some more data
 	bytesToRead = BYTES_PER_SAMPLE;
+	//for the very last sample in the frame, we need to also grab temp data over SPI
+	if(currentSample == samplesPerFrame - 1){
+		bytesToRead+=2;
+	}
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //set CS low.  It will be reset in the callback for TX complete.
 	HAL_SPI_TransmitReceive_IT(&hspi2, spiTxBuffer + BYTES_PER_SAMPLE - bytesToRead, spiRxBuffer + BYTES_PER_SAMPLE - bytesToRead, 2);	//kick off two bytes of SPI RX/TX.
 	spiBusy = true;
-
   }
   /* USER CODE END Callback 1 */
 }
